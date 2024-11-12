@@ -11,6 +11,7 @@
 #include <string.h>
 #include <time.h>
 
+#define SQL_NOUNICODEMAP
 #if defined(_WIN32)
 #include <windows.h>
 #include <sqlext.h>
@@ -292,15 +293,6 @@ static int cur_shut(lua_State *L, cur_data *cur)
 */
 static const char *sqltypetolua (const SQLSMALLINT type) {
     switch (type) {
-        case SQL_UNKNOWN_TYPE: case SQL_CHAR: case SQL_VARCHAR: 
-        case SQL_TYPE_DATE: case SQL_TYPE_TIME: case SQL_TYPE_TIMESTAMP: 
-        case SQL_DATE: case SQL_INTERVAL: case SQL_TIMESTAMP: 
-        case SQL_LONGVARCHAR:
-        case SQL_WCHAR: case SQL_WVARCHAR: case SQL_WLONGVARCHAR:
-#if (ODBCVER >= 0x0350)
-		case SQL_GUID:
-#endif
-            return "string";
         case SQL_BIGINT: case SQL_TINYINT: 
         case SQL_INTEGER: case SQL_SMALLINT: 
 #if LUA_VERSION_NUM>=503
@@ -314,8 +306,7 @@ static const char *sqltypetolua (const SQLSMALLINT type) {
         case SQL_BIT:
             return "boolean";
         default:
-            assert(0);
-            return NULL;
+            return "string";
     }
 }
 
@@ -697,7 +688,11 @@ static int raw_execute(lua_State *L, int istmt)
 			return fail(L, hSTMT, stmt->hstmt);
 		}
 
-		lua_pushnumber(L, numrows);
+#if LUA_VERSION_NUM >= 503
+		lua_pushinteger(L, (lua_Integer)numrows);
+#else
+		lua_pushnumber(L, (lua_Number)numrows);
+#endif
 		return 1;
 	}
 }
@@ -1075,9 +1070,12 @@ static int create_connection (lua_State *L, int o, env_data *env, SQLHDBC hdbc)
 */
 static int env_connect (lua_State *L) {
 	env_data *env = (env_data *) getenvironment (L, 1);
-	SQLCHAR *sourcename = (SQLCHAR*)luaL_checkstring (L, 2);
+	SQLCHAR *sourcename = lua_istable(L, 2) ? NULL : (SQLCHAR*)luaL_checkstring (L, 2);
 	SQLCHAR *username = (SQLCHAR*)luaL_optstring (L, 3, NULL);
 	SQLCHAR *password = (SQLCHAR*)luaL_optstring (L, 4, NULL);
+	luaL_Buffer b;
+	int k;
+	int v;
 	SQLHDBC hdbc;
 	SQLRETURN ret;
 
@@ -1086,9 +1084,58 @@ static int env_connect (lua_State *L) {
 	if (error(ret))
 		return luasql_faildirect (L, "connection allocation error.");
 
-	/* tries to connect handle */
-	ret = SQLConnect (hdbc, sourcename, SQL_NTS, 
-		username, SQL_NTS, password, SQL_NTS);
+	if (sourcename != NULL)
+	{
+		/* tries to connect handle */
+		ret = SQLConnect (hdbc, sourcename, SQL_NTS, 
+			username, SQL_NTS, password, SQL_NTS);
+	}
+	else
+	{
+		lua_pushnil(L);
+		k = lua_gettop(L);
+		lua_pushnil(L);
+		v = lua_gettop(L);
+
+		luaL_buffinit(L, &b);
+
+		lua_pushnil(L);
+		while (lua_next(L, 2))
+		{
+			lua_replace(L, v);
+			lua_replace(L, k);
+			lua_pushvalue(L, k);
+			luaL_addvalue(&b);
+			luaL_addchar(&b, '=');
+			lua_pushvalue(L, v);
+			luaL_addvalue(&b);
+			luaL_addchar(&b, ';');
+			lua_pushvalue(L, k);
+		}
+
+		if (username != NULL)
+		{
+			luaL_addlstring(&b, "UID", 3);
+			luaL_addchar(&b, '=');
+			lua_pushvalue(L, 3);
+			luaL_addvalue(&b);
+			luaL_addchar(&b, ';');
+		}
+		if (password != NULL)
+		{
+			luaL_addlstring(&b, "PWD", 3);
+			luaL_addchar(&b, '=');
+			lua_pushvalue(L, 4);
+			luaL_addvalue(&b);
+			luaL_addchar(&b, ';');
+		}
+
+		/* tries to connect handle */
+		ret = SQLDriverConnect(hdbc, NULL,
+			luaL_buffaddr(&b), (SQLSMALLINT)luaL_bufflen(&b),
+			NULL, 0, NULL, SQL_DRIVER_NOPROMPT);
+	}
+
 	if (error(ret)) {
 		ret = fail(L, hDBC, hdbc);
 		SQLFreeHandle(hDBC, hdbc);
