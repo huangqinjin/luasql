@@ -1,0 +1,53 @@
+{
+  "name": "luasql",
+  "version-string": "0",
+  "description": "LuaSQL is a simple interface from Lua to a DBMS.",
+  "homepage": "https://github.com/lunarmodules/luasql",
+  "license": "MIT",
+  "dependencies": [
+    "lua",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ],
+  "default-features": [
+    {
+      "name": "odbc",
+      "platform": "windows"
+    }
+  ],
+  "features": {
+    "odbc": {
+      "description": "ODBC",
+      "dependencies": [
+        {
+          "name": "unixodbc",
+          "platform": "!windows"
+        }
+      ]
+    },
+    "sqlite3": {
+      "description": "SQLite3",
+      "dependencies": [
+        "sqlite3"
+      ]
+    },
+    "postgre": {
+      "description": "PostgreSQL",
+      "dependencies": [
+        "libpg"
+      ]
+    },
+    "mysql": {
+      "description": "MySQL",
+      "dependencies": [
+        "libmysql"
+      ]
+    }
+  }
+}
